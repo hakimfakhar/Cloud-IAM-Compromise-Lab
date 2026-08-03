@@ -1,12 +1,35 @@
-# CloudWatch Logs Insights — Hunting Queries
+# CloudTrail Hunting — What I Actually Did
 
-These are the queries I used (or would use, if Logs Insights is wired to
-the trail's log group) to reconstruct the `Service-account` identity's
-full timeline from raw CloudTrail JSON. They're the direct equivalent of
-the custom Wazuh rules from the RDP lab — instead of writing detection
-logic client-side, this is querying AWS's own log store directly.
+I didn't query CloudWatch Logs Insights for this lab. My trail wasn't
+wired to send logs to CloudWatch Logs, so the hunt was done entirely
+through **CloudTrail's Event history** in the console: filtering by
+event name and narrowing the time range to the window I ran the attack
+chain in, then opening individual events to check `errorCode`,
+`sourceIPAddress`, and `userIdentity`.
 
-## 1. Full timeline for the compromised identity
+## What I searched for, in order
+
+- `GetCallerIdentity` — confirmed Stage 1 landed at 14:52:29 UTC
+- `ListUsers`, `ListAttachedUserPolicies`, `GetAccountSummary` — recon, Stage 2
+- `AttachUserPolicy` — pulled every event with this name in the window,
+  which is how I found the denied attempt sitting right next to the
+  successful one, five minutes apart
+- `CreateAccessKey` — Stage 5, and how I noticed lab-admin's own
+  legitimate key-creation events sitting in the same list, which is what
+  first tipped me off to check GuardDuty had told the two apart correctly
+- `GetObjects` — searched this expecting to find the exfiltration
+  download, and got zero matches. That's what led me to the Data events
+  gap (see `logging-and-detection-config.md`), not a query — just an
+  empty search result where I expected a hit.
+
+Screenshots of each of these searches are in `Screenshots/03-CloudTrail-Hunt/`.
+
+## What I'd add if I ran this again
+
+Wiring the trail to CloudWatch Logs would let the same hunt be done with
+actual Logs Insights queries instead of manual event-name filtering —
+useful for anything wider than a single known identity in a known time
+window. Rough sketches of what those queries would look like:
 
 ```
 fields @timestamp, eventName, eventSource, sourceIPAddress, errorCode
@@ -14,34 +37,11 @@ fields @timestamp, eventName, eventSource, sourceIPAddress, errorCode
 | sort @timestamp asc
 ```
 
-## 2. Isolate every denied/failed API call (privilege escalation attempts, etc.)
-
 ```
-fields @timestamp, eventName, errorCode, errorMessage
-| filter userIdentity.userName = "Service-account"
-| filter ispresent(errorCode)
-| sort @timestamp asc
-```
-
-## 3. Flag any `iam:AttachUserPolicy` or `iam:CreateAccessKey` call account-wide
-
-These are the two highest-risk IAM APIs in this attack chain — a
-production version of this query is a reasonable low-noise alert rule.
-
-```
-fields @timestamp, userIdentity.userName, eventName, requestParameters.policyArn
+fields @timestamp, userIdentity.userName, eventName
 | filter eventName in ["AttachUserPolicy", "CreateAccessKey", "PutUserPolicy"]
 | sort @timestamp desc
 ```
 
-## 4. Confirm the CloudTrail Data-events gap directly from raw logs
-
-Run this against the log group; an empty result for a known S3 object
-key confirms Data events genuinely weren't captured (rather than just
-not surfaced in the Event history UI):
-
-```
-fields @timestamp, eventName, requestParameters.key
-| filter eventSource = "s3.amazonaws.com" and eventName = "GetObject"
-| filter requestParameters.bucketName = "lab-sensitive-reports-hf01"
-```
+I haven't run either of these — they're what I'd reach for next time
+rather than something this lab actually used.
