@@ -34,8 +34,8 @@ is in [`Reports/report.pdf`](Reports/report.pdf).
 Cloud-IAM-Compromise-Lab/
 ├── README.md
 ├── Reports/
-│   ├── report.tex          # full LaTeX source
-│   └── report.pdf           # compiled report (21 pages)
+│   ├── report.pdf          # compiled report (21 pages)
+│
 ├── Configuration/
 │   ├── iam-setup.md                       # both IAM users, policies, the ARN bug
 │   ├── lab-svc-acc-self-attach-policy.json # the custom privesc policy
